@@ -1,6 +1,6 @@
-import { clsx } from 'clsx';
 import Link from 'next/link';
-import { lusitana } from '@/app/ui/fonts';
+import { ChevronRightIcon, HomeIcon } from '@heroicons/react/24/outline';
+import clsx from 'clsx';
 
 interface Breadcrumb {
   label: string;
@@ -15,19 +15,31 @@ export default function Breadcrumbs({
 }) {
   return (
     <nav aria-label="Breadcrumb" className="mb-6 block">
-      <ol className={clsx(lusitana.className, 'flex text-xl md:text-2xl')}>
-        {breadcrumbs.map((breadcrumb, index) => (
-          <li
-            key={breadcrumb.href}
-            aria-current={breadcrumb.active}
-            className={clsx(
-              breadcrumb.active ? 'text-gray-900' : 'text-gray-500',
-            )}
+      <ol className="flex text-xl md:text-2xl">
+        <li className="flex items-center">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-1 text-gray-500 hover:text-gray-900"
           >
-            <Link href={breadcrumb.href}>{breadcrumb.label}</Link>
-            {index < breadcrumbs.length - 1 ? (
-              <span className="mx-3 inline-block">/</span>
-            ) : null}
+            <HomeIcon className="h-5 w-5" />
+            <span>Home</span>
+          </Link>
+        </li>
+        {breadcrumbs.map((breadcrumb, index) => (
+          <li key={breadcrumb.href} className="flex items-center">
+            <ChevronRightIcon className="h-5 w-5 text-gray-500" />
+            <Link
+              href={breadcrumb.href}
+              className={clsx(
+                'ml-1 text-sm font-medium md:text-base',
+                breadcrumb.active
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-900',
+              )}
+              aria-current={breadcrumb.active ? 'page' : undefined}
+            >
+              {breadcrumb.label}
+            </Link>
           </li>
         ))}
       </ol>

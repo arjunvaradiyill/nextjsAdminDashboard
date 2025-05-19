@@ -9,20 +9,103 @@ import {
 } from './definitions';
 import { formatCurrency } from './utils';
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+if (!process.env.POSTGRES_URL) {
+  throw new Error('POSTGRES_URL is not defined');
+}
+
+console.log('Database URL:', process.env.POSTGRES_URL);
+
+const sql = postgres(process.env.POSTGRES_URL, {
+  ssl: 'require',
+  max: 1,
+  idle_timeout: 20,
+  connect_timeout: 10,
+  debug: true,
+  prepare: false,
+  transform: {
+    undefined: null,
+  },
+  connection: {
+    search_path: 'public',
+  },
+});
+
+// Initialize database tables
+async function initializeDatabase() {
+  try {
+    await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS revenue (
+        month VARCHAR(4) NOT NULL UNIQUE,
+        revenue INT NOT NULL
+      );
+    `;
+
+    const existingData = await sql`SELECT COUNT(*) FROM revenue`;
+    if (existingData[0].count === '0') {
+      await sql`
+        INSERT INTO revenue (month, revenue)
+        VALUES 
+          ('Jan', 2000),
+          ('Feb', 1800),
+          ('Mar', 2200),
+          ('Apr', 2500),
+          ('May', 2300),
+          ('Jun', 3200),
+          ('Jul', 3500),
+          ('Aug', 3700),
+          ('Sep', 2500),
+          ('Oct', 2800),
+          ('Nov', 3000),
+          ('Dec', 4800)
+        ON CONFLICT (month) DO NOTHING;
+      `;
+    }
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS customers (
+        id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        image_url VARCHAR(255) NOT NULL
+      );
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+        customer_id UUID NOT NULL,
+        amount INT NOT NULL,
+        status VARCHAR(255) NOT NULL,
+        date DATE NOT NULL
+      );
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL
+      );
+    `;
+
+    console.log('Database tables initialized successfully');
+  } catch (error) {
+    console.error('Error initializing database:', error);
+  }
+}
+
+initializeDatabase();
 
 export async function fetchRevenue() {
   try {
-    // Artificially delay a response for demo purposes.
-    // Don't do this in production :)
-
-    // console.log('Fetching revenue data...');
-    // await new Promise((resolve) => setTimeout(resolve, 3000));
+    console.log('Fetching revenue data...');
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     const data = await sql<Revenue[]>`SELECT * FROM revenue`;
-
-    // console.log('Data fetch completed after 3 seconds.');
-
+    console.log('Data fetch completed after 3 seconds.');
     return data;
   } catch (error) {
     console.error('Database Error:', error);
@@ -39,11 +122,10 @@ export async function fetchLatestInvoices() {
       ORDER BY invoices.date DESC
       LIMIT 5`;
 
-    const latestInvoices = data.map((invoice) => ({
+    return data.map((invoice) => ({
       ...invoice,
       amount: formatCurrency(invoice.amount),
     }));
-    return latestInvoices;
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch the latest invoices.');
@@ -52,9 +134,6 @@ export async function fetchLatestInvoices() {
 
 export async function fetchCardData() {
   try {
-    // You can probably combine these into a single SQL query
-    // However, we are intentionally splitting them to demonstrate
-    // how to initialize multiple queries in parallel with JS.
     const invoiceCountPromise = sql`SELECT COUNT(*) FROM invoices`;
     const customerCountPromise = sql`SELECT COUNT(*) FROM customers`;
     const invoiceStatusPromise = sql`SELECT
@@ -88,9 +167,11 @@ export async function fetchCardData() {
 const ITEMS_PER_PAGE = 6;
 export async function fetchFilteredInvoices(
   query: string,
-  currentPage: number,
+  currentPage: number
 ) {
-  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+  // Ensure offset is a valid number
+  const page = isNaN(currentPage) ? 1 : currentPage;
+  const offset = (page - 1) * ITEMS_PER_PAGE;
 
   try {
     const invoices = await sql<InvoicesTable[]>`
@@ -123,19 +204,20 @@ export async function fetchFilteredInvoices(
 
 export async function fetchInvoicesPages(query: string) {
   try {
-    const data = await sql`SELECT COUNT(*)
-    FROM invoices
-    JOIN customers ON invoices.customer_id = customers.id
-    WHERE
-      customers.name ILIKE ${`%${query}%`} OR
-      customers.email ILIKE ${`%${query}%`} OR
-      invoices.amount::text ILIKE ${`%${query}%`} OR
-      invoices.date::text ILIKE ${`%${query}%`} OR
-      invoices.status ILIKE ${`%${query}%`}
-  `;
+    const count = await sql`
+      SELECT COUNT(*)
+      FROM invoices
+      JOIN customers ON invoices.customer_id = customers.id
+      WHERE
+        customers.name ILIKE ${`%${query}%`} OR
+        customers.email ILIKE ${`%${query}%`} OR
+        invoices.amount::text ILIKE ${`%${query}%`} OR
+        invoices.date::text ILIKE ${`%${query}%`} OR
+        invoices.status ILIKE ${`%${query}%`}
+    `;
 
-    const totalPages = Math.ceil(Number(data[0].count) / ITEMS_PER_PAGE);
-    return totalPages;
+    const totalPages = Math.ceil(Number(count[0].count) / ITEMS_PER_PAGE);
+    return totalPages || 1; // Return at least 1 page even if no results
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch total number of invoices.');
@@ -156,7 +238,6 @@ export async function fetchInvoiceById(id: string) {
 
     const invoice = data.map((invoice) => ({
       ...invoice,
-      // Convert amount from cents to dollars
       amount: invoice.amount / 100,
     }));
 
@@ -187,30 +268,28 @@ export async function fetchCustomers() {
 export async function fetchFilteredCustomers(query: string) {
   try {
     const data = await sql<CustomersTableType[]>`
-		SELECT
-		  customers.id,
-		  customers.name,
-		  customers.email,
-		  customers.image_url,
-		  COUNT(invoices.id) AS total_invoices,
-		  SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END) AS total_pending,
-		  SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END) AS total_paid
-		FROM customers
-		LEFT JOIN invoices ON customers.id = invoices.customer_id
-		WHERE
-		  customers.name ILIKE ${`%${query}%`} OR
+      SELECT
+        customers.id,
+        customers.name,
+        customers.email,
+        customers.image_url,
+        COUNT(invoices.id) AS total_invoices,
+        SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END) AS total_pending,
+        SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END) AS total_paid
+      FROM customers
+      LEFT JOIN invoices ON customers.id = invoices.customer_id
+      WHERE
+        customers.name ILIKE ${`%${query}%`} OR
         customers.email ILIKE ${`%${query}%`}
-		GROUP BY customers.id, customers.name, customers.email, customers.image_url
-		ORDER BY customers.name ASC
-	  `;
+      GROUP BY customers.id, customers.name, customers.email, customers.image_url
+      ORDER BY customers.name ASC
+    `;
 
-    const customers = data.map((customer) => ({
+    return data.map((customer) => ({
       ...customer,
       total_pending: formatCurrency(customer.total_pending),
       total_paid: formatCurrency(customer.total_paid),
     }));
-
-    return customers;
   } catch (err) {
     console.error('Database Error:', err);
     throw new Error('Failed to fetch customer table.');
