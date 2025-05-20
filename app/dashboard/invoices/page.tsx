@@ -1,4 +1,3 @@
-
 import Pagination from '@/app/ui/invoices/pagination';
 import Search from '@/app/ui/search';
 import Table from '@/app/ui/invoices/table';
@@ -8,19 +7,20 @@ import { Suspense } from 'react';
 import { InvoicesTableSkeleton } from '@/app/ui/skeletons';
 import { fetchInvoicesPages } from '@/app/lib/data';
 
-interface PageProps {
-  searchParams: {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{
     query?: string;
     page?: string;
     success?: string;
-  };
-}
-
-export default async function Page({ searchParams }: PageProps) {
-  const query = searchParams.query || '';
-  const currentPage = Number(searchParams.page) || 1;
+  }>;
+}) {
+  const params = await searchParams;
+  const query = params.query || '';
+  const currentPage = Number(params.page) || 1;
   const totalPages = await fetchInvoicesPages(query);
-  const success = searchParams.success || '';
+  const success = params.success || '';
 
   return (
     <div className="w-full">
@@ -31,7 +31,7 @@ export default async function Page({ searchParams }: PageProps) {
         <Search placeholder="Search invoices..." />
         <CreateInvoice />
       </div>
-      {/* Success message would normally go here */}
+      {/* Success message */}
       {success && (
         <div className="mt-4 rounded-md bg-green-50 p-4 text-green-700">
           <p>

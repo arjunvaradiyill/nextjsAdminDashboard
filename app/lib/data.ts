@@ -102,14 +102,15 @@ initializeDatabase();
 export async function fetchRevenue() {
   try {
     console.log('Fetching revenue data...');
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 500)); // Reduced timeout for better UX
 
     const data = await sql<Revenue[]>`SELECT * FROM revenue`;
-    console.log('Data fetch completed after 3 seconds.');
+    console.log('Data fetch completed.');
     return data;
   } catch (error) {
     console.error('Database Error:', error);
-    throw new Error('Failed to fetch revenue data.');
+    // Return empty array instead of throwing error
+    return [];
   }
 }
 
@@ -128,7 +129,8 @@ export async function fetchLatestInvoices() {
     }));
   } catch (error) {
     console.error('Database Error:', error);
-    throw new Error('Failed to fetch the latest invoices.');
+    // Return empty array instead of throwing error
+    return [];
   }
 }
 
@@ -147,10 +149,10 @@ export async function fetchCardData() {
       invoiceStatusPromise,
     ]);
 
-    const numberOfInvoices = Number(data[0][0].count ?? '0');
-    const numberOfCustomers = Number(data[1][0].count ?? '0');
-    const totalPaidInvoices = formatCurrency(data[2][0].paid ?? '0');
-    const totalPendingInvoices = formatCurrency(data[2][0].pending ?? '0');
+    const numberOfInvoices = Number(data[0][0]?.count ?? '0');
+    const numberOfCustomers = Number(data[1][0]?.count ?? '0');
+    const totalPaidInvoices = formatCurrency(data[2][0]?.paid ?? '0');
+    const totalPendingInvoices = formatCurrency(data[2][0]?.pending ?? '0');
 
     return {
       numberOfCustomers,
@@ -160,7 +162,13 @@ export async function fetchCardData() {
     };
   } catch (error) {
     console.error('Database Error:', error);
-    throw new Error('Failed to fetch card data.');
+    // Return default values when there's an error
+    return {
+      numberOfCustomers: 0,
+      numberOfInvoices: 0,
+      totalPaidInvoices: '$0.00',
+      totalPendingInvoices: '$0.00',
+    };
   }
 }
 
